@@ -1,0 +1,10 @@
+# ide
+.vs*
+.idea
+
+# build
+out/*
+*-build*/
+*build*/
+.cache/*
+compile_commands.json
