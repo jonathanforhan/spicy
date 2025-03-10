@@ -1,12 +1,13 @@
 #pragma once
 
+#include <complex>
+#include <cstdint>
 #include <cstring>
 #include <vector>
-#include "types.hpp"
 
 namespace spicy {
 
-enum class ComponentType : i8 {
+enum class ComponentType : int8_t {
     unknown = -1,
     R = 'r', // resistor
     C = 'c', // capacitor
@@ -22,12 +23,14 @@ enum class ComponentType : i8 {
 
 class Component final {
 public:
-    using impedance_callback = complex_t (*)(const Component&, complex_t v, complex_t i, f64 t);
-    using voltage_callback = complex_t (*)(const Component&, f64 t);
-    using current_callback = complex_t (*)(const Component&, f64 t);
+    using complex_t = std::complex<double>;
+
+    using impedance_callback = complex_t (*)(const Component&, complex_t v, complex_t i, double t);
+    using voltage_callback = complex_t (*)(const Component&, double t);
+    using current_callback = complex_t (*)(const Component&, double t);
 
 public:
-    Component(ComponentType type, std::vector<u64>&& nodes)
+    Component(ComponentType type, std::vector<uint64_t>&& nodes)
         : _type(type),
           _nodes(std::move(nodes)) {}
 
@@ -39,7 +42,7 @@ public:
 
 private:
     ComponentType _type;
-    std::vector<u64> _nodes;
+    std::vector<uint64_t> _nodes;
 };
 
 } // namespace spicy

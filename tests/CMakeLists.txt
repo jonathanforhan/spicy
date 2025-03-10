@@ -23,3 +23,8 @@ foreach(TEST IN LISTS TEST_SOURCES)
     # create test with (test_$name $name.test.cpp)
     create_test("test_${TEST_BINARY}" "${TEST}")
 endforeach()
+
+file(
+    COPY "${CMAKE_CURRENT_SOURCE_DIR}/netlists"
+    DESTINATION "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+)

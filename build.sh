@@ -11,4 +11,4 @@ mkdir -p "${SRC_DIR}/${BUILD_TYPE}-build"
 cmake -S "${SRC_DIR}" -B "${SRC_DIR}/${BUILD_TYPE}-build" --preset "gcc-${BUILD_TYPE}"
 cmake --build "${SRC_DIR}/${BUILD_TYPE}-build"
 
-ln -sf "${SRC_DIR}/${BUILD_TYPE}/compile_commands.json" "${SRC_DIR}/compile_commands.json"
+ln -sf "${SRC_DIR}/${BUILD_TYPE}-build/compile_commands.json" "${SRC_DIR}/compile_commands.json"
