@@ -30,9 +30,8 @@ ComponentCollection&& Parser::parse() {
             auto i = static_cast<size_t>(next - input.begin());
             std::memcpy(&_input[i], "  ", 2);
         } else {
-            auto line_size = static_cast<size_t>(next - curr);
-            if (line_size != 0) {
-                auto line = std::string_view{curr, line_size};
+            auto line = std::string_view{curr, next};
+            if (!line.empty()) {
                 parse_line(line);
             }
             curr = next + 1;
@@ -40,9 +39,8 @@ ComponentCollection&& Parser::parse() {
     }
 
     // handle case of input not ending with newline
-    auto line_size = static_cast<size_t>(next - curr);
-    if (line_size != 0) {
-        auto line = std::string_view{curr, line_size};
+    auto line = std::string_view{curr, next};
+    if (!line.empty()) {
         parse_line(line);
     }
 
@@ -52,7 +50,8 @@ ComponentCollection&& Parser::parse() {
 void Parser::parse_line(std::string_view line) {
     auto match = [](const char* x, std::string_view s) { return std::strncmp(x, s.data(), s.length()) == 0; };
 
-    auto it = std::ranges::find_if(line, [](char c) { return !std::isspace(c); });
+    // get first non-space
+    auto it = std::ranges::find_if_not(line, isspace);
     if (it == line.end()) {
         return;
     }
@@ -82,18 +81,16 @@ void Parser::for_each_word(std::string_view line, auto&& fn) {
     size_t i = 0;
 
     while ((next = std::find_if(curr, line.end(), isspace)) != line.end()) {
-        auto word_size = static_cast<size_t>(next - curr);
-        if (word_size) {
-            auto word = std::string_view{curr, word_size};
+        auto word = std::string_view{curr, next};
+        if (!word.empty()) {
             fn(word, i++);
         }
         curr = next + 1;
     }
 
     // handle case of line not ending with space
-    auto word_size = static_cast<size_t>(next - curr);
-    if (word_size != 0) {
-        auto word = std::string_view{curr, word_size};
+    auto word = std::string_view{curr, next};
+    if (!word.empty()) {
         fn(word, i++);
     }
 }
