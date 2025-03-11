@@ -3,22 +3,28 @@
 #include <complex>
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 namespace spicy {
 
 enum class ComponentType : int8_t {
-    unknown = -1,
-    R = 'r', // resistor
-    C = 'c', // capacitor
-    L = 'l', // inductor
-    V = 'v', // voltage source
-    I = 'i', // current source
-    // E = 'e', // vcvs
-    // F = 'f', // cccs
-    // G = 'g', // vccs
-    // H = 'h', // ccvs
-    // D = 'd', // diode
+    Unknown = -1,
+    R, // resistor
+    C, // capacitor
+    L, // inductor
+    V, // voltage source
+    I, // current source
+    // E, // vcvs
+    // F, // cccs
+    // G, // vccs
+    // H, // ccvs
+    // D, // diode
+    Model,
 };
 
 class Component final {
@@ -30,19 +36,32 @@ public:
     using current_callback = complex_t (*)(const Component&, double t);
 
 public:
-    Component(ComponentType type, std::vector<uint64_t>&& nodes)
+    Component(ComponentType type, std::string_view name, std::span<uint64_t> nodes)
         : _type(type),
-          _nodes(std::move(nodes)) {}
+          _name(name),
+          _nodes(nodes) {}
 
-    impedance_callback impedance = nullptr;
+    std::variant<impedance_callback, voltage_callback, current_callback> callback = {};
 
-    voltage_callback voltage = nullptr;
+    Component(const Component&) = delete;
+    Component& operator=(const Component&) = delete;
 
-    current_callback current = nullptr;
+    Component(Component&&) = default;
+    Component& operator=(Component&&) = default;
 
-private:
+    ~Component() {}
+
+    // private:
     ComponentType _type;
-    std::vector<uint64_t> _nodes;
+    std::string_view _name;
+    std::span<uint64_t> _nodes;
+};
+
+class ComponentCollection {
+public:
+    std::vector<Component> components;
+    std::vector<uint64_t> node_pool;
+    std::string name_pool;
 };
 
 } // namespace spicy

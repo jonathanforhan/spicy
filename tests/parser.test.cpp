@@ -26,9 +26,7 @@ int main(int argc, char** argv) {
     std::stringstream ss;
     ss << ifs.rdbuf();
 
-    std::string s = ss.str();
-
-    Parser parser(s);
+    Parser parser(ss.str());
     parser.parse();
 
     return 1;
