@@ -1,41 +1,53 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
-#include "Component.hpp"
+#include "components/Component.hpp"
 
 namespace spicy {
 
 class Parser {
 public:
+    enum Result : uint8_t {
+        Success = 0,
+        InvalidArgument,
+        UnknownComponent,
+    };
+
+public:
     Parser(const std::string& input)
-        : _input(input) {}
+        : _input{input},
+          _list{nullptr} {}
 
     Parser(std::string&& input)
-        : _input(std::move(input)) {}
+        : _input{std::move(input)},
+          _list{nullptr} {}
 
-    ComponentCollection&& parse();
+    [[nodiscard]] Result parse(ComponentList& list);
 
 private:
-    void parse_line(std::string_view line);
+    [[nodiscard]] Result parse_arg(std::string_view s, auto& arg);
 
-    void for_each_word(std::string_view line, auto&& fn);
+    [[nodiscard]] Result parse_line(std::string_view line);
 
-    void parse_resistor(std::string_view line);
+    [[nodiscard]] Result for_each_word(std::string_view line, auto&& fn);
 
-    void parse_capacitor(std::string_view line);
+    [[nodiscard]] Result parse_resistor(std::string_view line);
 
-    void parse_inductor(std::string_view line);
+    [[nodiscard]] Result parse_capacitor(std::string_view line);
 
-    void parse_voltage_source(std::string_view line);
+    [[nodiscard]] Result parse_inductor(std::string_view line);
 
-    void parse_current_source(std::string_view line);
+    [[nodiscard]] Result parse_voltage_source(std::string_view line);
 
-    void parse_model(std::string_view line);
+    [[nodiscard]] Result parse_current_source(std::string_view line);
+
+    [[nodiscard]] Result parse_model(std::string_view line);
 
 private:
     std::string _input;
-    ComponentCollection _collection; // used to give methods access to common collection
+    ComponentList* _list;
 };
 
 } // namespace spicy

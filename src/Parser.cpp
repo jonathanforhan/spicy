@@ -1,24 +1,40 @@
 #include "Parser.hpp"
 
+#include <fmt/base.h>
+#include <fmt/core.h>
 #include <algorithm>
 #include <cassert>
 #include <cctype>
 #include <charconv>
+#include <complex>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <string_view>
-#include "Component.hpp"
-#include "log.hpp"
+#include <system_error>
+#include "components/Component.hpp"
+#include "components/Resistor.hpp"
+#include "components/VoltageSource.hpp"
+
+#ifndef NDEBUG
+#define DEBUG(...) fmt::println(__VA_ARGS__)
+#else
+#define DEBUG(...) (void)0
+#endif
+#define ERROR(...) fmt::println(stderr, "[ERROR] "__VA_ARGS__)
 
 namespace spicy {
 
-ComponentCollection&& Parser::parse() {
-    _collection.components.reserve(100);
+Parser::Result Parser::parse(ComponentList& list) {
+    _list = &list;
+    _list->components.reserve(100);
+
+    Result res = Success;
 
     // use string view of _input to prevent copies
-    auto input = std::string_view{_input};
+    std::string_view input{_input};
 
     // use curr and next to create sliding window
     auto curr = input.begin();
@@ -27,133 +43,219 @@ ComponentCollection&& Parser::parse() {
     while ((next = std::find(curr, input.end(), '\n')) != input.end()) {
         if (next + 1 != input.end() && next[1] == '+') {
             // handle line continuation by removing '\n' in origin input, overwriting '+' and redoing find
-            auto i = static_cast<size_t>(next - input.begin());
+            size_t i = static_cast<size_t>(next - input.begin());
             std::memcpy(&_input[i], "  ", 2);
         } else {
-            auto line = std::string_view{curr, next};
-            if (!line.empty()) {
-                parse_line(line);
+            std::string_view line{curr, next};
+            res = parse_line(line);
+            if (res != Success) {
+                return res;
             }
             curr = next + 1;
         }
     }
 
     // handle case of input not ending with newline
-    auto line = std::string_view{curr, next};
-    if (!line.empty()) {
-        parse_line(line);
-    }
+    std::string_view line{curr, next};
+    res = parse_line(line);
 
-    return std::move(_collection);
+    return res;
 }
 
-void Parser::parse_line(std::string_view line) {
-    auto match = [](const char* x, std::string_view s) { return std::strncmp(x, s.data(), s.length()) == 0; };
+Parser::Result Parser::parse_arg(std::string_view s, auto& arg) {
+    Result res = Success;
+    auto r = std::from_chars(s.begin(), s.end(), arg);
+    if (r.ec != std::errc{} || r.ptr != s.end()) {
+        res = InvalidArgument;
+    }
+    return res;
+}
+
+Parser::Result Parser::parse_line(std::string_view line) {
+    auto match = []<size_t N>(const char* x, const char(&s)[N]) { return std::strncmp(x, s, N - 1) == 0; };
+
+    Result res = Success;
 
     // get first non-space
-    auto it = std::ranges::find_if_not(line, isspace);
-    if (it == line.end()) {
-        return;
+    if (auto it = std::ranges::find_if_not(line, isspace); it != line.end()) {
+        if (match(it, "r")) {
+            res = parse_resistor(line);
+        } else if (match(it, "c")) {
+            res = parse_capacitor(line);
+        } else if (match(it, "l")) {
+            res = parse_inductor(line);
+        } else if (match(it, "v")) {
+            res = parse_voltage_source(line);
+        } else if (match(it, "i")) {
+            res = parse_current_source(line);
+        } else if (match(it, ".model")) {
+            res = parse_model(line);
+        } else if (match(it, "*")) {
+            // comment
+        } else {
+            DEBUG("[ERROR] parsing unknown component on line '{:.{}}", line.data(), line.length());
+            res = UnknownComponent;
+        }
     }
 
-    if (match(it, "r"))
-        parse_resistor(line);
-    else if (match(it, "c"))
-        parse_capacitor(line);
-    else if (match(it, "l"))
-        parse_inductor(line);
-    else if (match(it, "v"))
-        parse_voltage_source(line);
-    else if (match(it, "i"))
-        parse_current_source(line);
-    else if (match(it, ".model"))
-        parse_model(line);
-    else if (match(it, "*"))
-        ; // comment
-    else
-        ERROR("parsing unknown component on line '%.*s'", (int)line.length(), line.data());
+    return res;
 }
 
-void Parser::for_each_word(std::string_view line, auto&& fn) {
+Parser::Result Parser::for_each_word(std::string_view line, auto&& fn) {
+    Result res = Success;
+
     // use curr and next to create sliding window
     auto curr = line.begin();
     auto next = curr; // for type deduction
     size_t i = 0;
 
     while ((next = std::find_if(curr, line.end(), isspace)) != line.end()) {
-        auto word = std::string_view{curr, next};
-        if (!word.empty()) {
-            fn(word, i++);
+        if (std::string_view word{curr, next}; !word.empty()) {
+            res = fn(word, i++);
+            if (res != Success) {
+                return res;
+            }
         }
         curr = next + 1;
     }
 
     // handle case of line not ending with space
-    auto word = std::string_view{curr, next};
-    if (!word.empty()) {
-        fn(word, i++);
+    if (std::string_view word{curr, next}; !word.empty()) {
+        res = fn(word, i++);
     }
+
+    return res;
 }
 
-void Parser::parse_resistor(std::string_view line) {
-    auto name_begin = _collection.name_pool.end();
-    int name_size = 0;
+Parser::Result Parser::parse_resistor(std::string_view line) {
+    Result res = Success;
 
-    auto nodes_begin = _collection.node_pool.end();
-    int nodes_size = 0;
-
+    std::string name;
+    size_t node0 = 0, node1 = 0;
     double resistance = 0.0;
 
-    for_each_word(line, [&, this](std::string_view word, size_t i) {
+    res = for_each_word(line, [&](std::string_view word, size_t i) {
         switch (i) {
             case 0:
-                DEBUG("R name: %.*s", (int)word.length() - 1, word.data() + 1);
-                _collection.name_pool.append(word.begin() + 1, word.end());
-                name_size = (int)word.length() - 1;
+                assert(word[0] == 'r');
+                name = std::string{word.begin() + 1, word.end()};
                 break;
             case 1:
+                res = parse_arg(word, node0);
+                break;
             case 2:
-                DEBUG("R node: %.*s", (int)word.length(), word.data());
-                _collection.node_pool.emplace_back();
-                std::from_chars(word.begin(), word.end(), _collection.node_pool.back());
-                nodes_size++;
+                res = parse_arg(word, node1);
                 break;
             case 3:
-                DEBUG("R resistance: %.*s", (int)word.length(), word.data());
-                std::from_chars(word.begin(), word.end(), resistance);
+                res = parse_arg(word, resistance);
                 break;
             case 4:
-                DEBUG("R model: %.*s", (int)word.length(), word.data());
+                // model, nop for now (TODO)
                 break;
             default:
+                res = InvalidArgument;
                 break;
         }
+        return res;
     });
 
-    auto name = std::string_view(name_begin, name_begin + name_size);
-    auto nodes = std::span(nodes_begin, nodes_begin + nodes_size);
+    size_t index = _list->components.size();
+    _list->components.emplace_back(std::make_unique<Resistor>(std::move(name), resistance));
 
-    _collection.components.emplace_back(ComponentType::R, name, nodes);
+    size_t node_max = std::max(node0, node1);
+    while (_list->nodes.size() <= node_max) {
+        _list->nodes.emplace_back();
+    }
+
+    _list->nodes[node0].push_back(index);
+    _list->nodes[node1].push_back(index);
+
+    return Success;
 }
 
-void Parser::parse_capacitor(std::string_view line) {
-    DEBUG("C: '%.*s'", (int)line.length(), line.data());
+Parser::Result Parser::parse_capacitor(std::string_view line) {
+    DEBUG("C: '{:.{}}'", line.data(), line.length());
+    return Success;
 }
 
-void Parser::parse_inductor(std::string_view line) {
-    DEBUG("L: '%.*s'", (int)line.length(), line.data());
+Parser::Result Parser::parse_inductor(std::string_view line) {
+    DEBUG("L: '{:.{}}'", line.data(), line.length());
+    return Success;
 }
 
-void Parser::parse_voltage_source(std::string_view line) {
-    DEBUG("V: '%.*s'", (int)line.length(), line.data());
+Parser::Result Parser::parse_voltage_source(std::string_view line) {
+    Result res = Success;
+
+    std::string name;
+    size_t node0 = 0, node1 = 0;
+    double dc = 0.0;
+    double ac_real = 0.0, ac_imag = 0.0;
+
+    res = for_each_word(line, [&](std::string_view word, size_t i) {
+        switch (i) {
+            case 0:
+                assert(word[0] == 'v');
+                name = std::string{word.begin() + 1, word.end()};
+                break;
+            case 1:
+                res = parse_arg(word, node0);
+                break;
+            case 2:
+                res = parse_arg(word, node1);
+                break;
+            case 3:
+                assert(word == "dc");
+                break;
+            case 4:
+                res = parse_arg(word, dc);
+                break;
+            case 5:
+                assert(word == "ac");
+                break;
+            case 6:
+                res = parse_arg(word, ac_real);
+                break;
+            case 7:
+                res = parse_arg(word, ac_imag);
+                break;
+            case 8:
+            case 9:
+            case 10:
+            case 11:
+            case 12:
+            case 13:
+                // distortion (TODO)
+                break;
+            default:
+                res = InvalidArgument;
+                break;
+        }
+        return res;
+    });
+
+    size_t index = _list->components.size();
+    _list->components.emplace_back(
+        std::make_unique<VoltageSource>(std::move(name), dc, std::complex{ac_real, ac_imag}));
+
+    size_t node_max = std::max(node0, node1);
+    while (_list->nodes.size() <= node_max) {
+        _list->nodes.emplace_back();
+    }
+
+    _list->nodes[node0].push_back(index);
+    _list->nodes[node1].push_back(index);
+
+    return Success;
 }
 
-void Parser::parse_current_source(std::string_view line) {
-    DEBUG("I: '%.*s'", (int)line.length(), line.data());
+Parser::Result Parser::parse_current_source(std::string_view line) {
+    DEBUG("I: '{:.{}}'", line.data(), line.length());
+    return Success;
 }
 
-void Parser::parse_model(std::string_view line) {
-    DEBUG("M: '%.*s'", (int)line.length(), line.data());
+Parser::Result Parser::parse_model(std::string_view line) {
+    DEBUG("M: '{:.{}}'", line.data(), line.length());
+    return Success;
 }
 
 } // namespace spicy

@@ -1,25 +1,32 @@
+#include "Parser.hpp"
+#include <fmt/base.h>
+#include <fmt/core.h>
+#include <cassert>
 #include <cstdio>
-#include <iostream>
-
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
-#include "Parser.hpp"
+#include "components/Component.hpp"
+
+#include <Eigen/Sparse>
 
 using namespace spicy;
 
 namespace fs = std::filesystem;
 
 int main(int argc, char** argv) {
-    auto netlist_path = fs::path(argv[0]).parent_path() / "netlists" / "parser.test.cir";
+    Eigen::SparseMatrix<double> A(1000, 1000);
+
+    auto netlist_path = fs::path{argv[0]}.parent_path() / "netlists" / "parser.test.cir";
     if (!fs::exists(netlist_path)) {
-        (void)fprintf(stderr, "could not find path: %s\n", netlist_path.c_str());
+        fmt::println(stderr, "could not find path: {}", netlist_path.string());
         return -1;
     }
 
-    std::ifstream ifs(netlist_path);
+    std::ifstream ifs{netlist_path};
     if (!(ifs.is_open() and ifs.good())) {
-        (void)fprintf(stderr, "problem opening file %s", netlist_path.c_str());
+        fmt::println(stderr, "problem opening file {}", netlist_path.string());
         return -1;
     }
 
@@ -27,7 +34,21 @@ int main(int argc, char** argv) {
     ss << ifs.rdbuf();
 
     Parser parser(ss.str());
-    parser.parse();
+
+    ComponentList list;
+
+    [[maybe_unused]] auto result = parser.parse(list);
+    assert(result == Parser::Success);
+
+    fmt::println("{}", list.components[0]->name());
+    fmt::println("{}", list.components[1]->name());
+
+    for (int i = 0; auto& node : list.nodes) {
+        for (auto& component : node) {
+            std::cout << "Node " << i << " component: " << component << '\n';
+        }
+        i++;
+    }
 
     return 1;
 }

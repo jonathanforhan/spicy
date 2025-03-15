@@ -1,4 +1,9 @@
 cmake_minimum_required (VERSION 3.28)
+
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake")
+  set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake")
+endif()
+
 project(spicy VERSION 0.0.0 LANGUAGES C CXX)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
@@ -8,8 +13,8 @@ set(CMAKE_C_STANDARD 17)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-include(CTest)
-enable_testing()
+find_package(Eigen3 CONFIG REQUIRED)
+find_package(fmt CONFIG REQUIRED)
 
 set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src")
 file(GLOB_RECURSE CXX_SOURCES  "${SRC_DIR}/*.cpp")
@@ -17,12 +22,15 @@ list(FILTER CXX_SOURCES EXCLUDE REGEX ".*main\\.cpp$")
 
 add_library(spicy_lib STATIC "${CXX_SOURCES}")
 target_include_directories(spicy_lib PUBLIC "${SRC_DIR}")
+target_link_libraries(spicy_lib PUBLIC Eigen3::Eigen fmt::fmt)
 target_compile_options(spicy_lib PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Wconversion>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Wconversion -fno-exceptions>
 )
 
 add_executable(spicy "${SRC_DIR}/main.cpp")
 target_link_libraries(spicy PRIVATE spicy_lib)
 
+include(CTest)
+enable_testing()
 add_subdirectory(tests)
